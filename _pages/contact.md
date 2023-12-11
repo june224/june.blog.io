@@ -2,7 +2,7 @@
 title: Contact Me
 author: june
 date: 2023-11-18
-category: Jekyll
+category: jekyll
 layout: post
 ---
 
@@ -11,3 +11,4 @@ layout: post
 ![微信二维码](/assets/wechat/qrcode.jpeg)
 
 邮箱：**727979074@qq.com**
+

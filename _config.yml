@@ -1,7 +1,7 @@
 # Configurations
-title:            june's blog
-longtitle:        june's blog
-author:           知不知为上
+title:            june的博客
+longtitle:        june的博客
+author:           june
 email:            727979974@qq.com
 # github_username:  june224
 description: >
@@ -50,12 +50,15 @@ permalink:                /:categories/:year-:month-:day-:title:output_ext
 
 exclude:
   - _drafts
+  - design
 
+#include:
+#  - _pages
+#  - _posts
 collections:
-  golang:
+  pages:
     output: true
-    permalink: /golang
-    sort_by: lesson
+    permalink: /:collection/:path/
 
 page_width: 800px
 

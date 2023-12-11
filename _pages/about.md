@@ -2,7 +2,7 @@
 title: About
 author: june
 date: 2023-11-18
-category: Jekyll
+category: jekyll
 layout: post
 ---
 

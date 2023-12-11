@@ -51,14 +51,8 @@
                 gitbook.page.hasChanged({%- include metadata-home.json.tpl -%});
             });
             </script>
-            <script async src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
-        </div>
 
-          <ul>
-              {% for item in site.golang %}
-                <li><a href="{{ item.url }}">{{ item.title }}</a></li>
-              {% endfor %}
-            </ul>
+        </div>
 
         {%- include footer.html -%}
 

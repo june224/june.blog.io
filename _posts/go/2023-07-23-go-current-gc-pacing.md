@@ -1,6 +1,6 @@
 ---
 title: Go 1.5 并行垃圾回收步调【译】
-author: 知不知为上
+author: june
 date: 2023-12-03
 category: go
 layout: post

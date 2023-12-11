@@ -1,6 +1,6 @@
 ---
 title: mysql一种可拓展无锁的WAL新设计【译】
-author: 知不知为上
+author: june
 date: 2023-12-03
 category: db
 layout: post
