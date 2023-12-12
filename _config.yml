@@ -11,7 +11,7 @@ version:          1.0
 gitbook_version:  3.2.3
 
 url:              'https://june224.github.io'
-baseurl:          ''
+baseurl:          '/june.github.io'
 rss:              RSS
 
 # bootstrap: use the remote theme for the site itself
