@@ -12,7 +12,7 @@ Prior to Go 1.5, Go has used a parallel stop­-the-­world (STW) collector. Whil
 
 在 Go 1.5 之前，Go 使用了并行stop-the-world (STW)回收器。虽然STW回收有很多缺点，但它至少具有可预测且可控的堆增长行为。STW回收器的唯一调整旋钮是“GOGC”，即两次回收之间的相对堆增长。默认设置100% 会在每次堆大小比上次回收时的活动堆大小增加一倍时触发垃圾收器，如图1所示。
 
-![gcpacer_f1](../../assets/post/go/gcpacer_f1.png "gcpacer_f1")
+![gcpacer_f1](/june.github.io/assets/post/go/gcpacer_f1.png "gcpacer_f1")
 
 Go 1.5 introduces a concurrent collector. This has many advantages over STW collection, but it makes heap growth harder to control because the application can allocate memory while the garbage collector is running. To achieve the same heap growth limit the runtime must start garbage collection earlier, but how much earlier depends on many variables, many of which cannot be predicted. Start the collector too early, and the application will perform too many garbage collections, wasting CPU resources. Start the collector too late, and the application will exceed the desired maximum heap growth. Achieving the right balance without sacrificing concurrency requires carefully pacing the garbage collector.
 
@@ -28,7 +28,7 @@ GC pacing aims to optimize along two dimensions: heap growth, and CPU utilized b
 
 GC 步调旨在沿着两个维度进行优化：堆增长和用于垃圾回收的CPU利用率。
 
-![gcpacer_f2](../../assets/post/go/gcpacer_f2.png "gcpacer_f2")
+![gcpacer_f2](/june.github.io/assets/post/go/gcpacer_f2.png "gcpacer_f2")
 
 A Go user expresses the desired maximum heap growth by setting GOGC to percent heap growth from one garbage collection cycle to the next. Let $$ h_g = GOGC / 100 $$ 
 denote this goal growth ratio.That is, if H_m(n) is the total size of marked objects following the nth GC cycle, then the goal heap size is $$ H_g(n) = H_m(n − 1) ∙ (1 + h_g) $$. 
@@ -97,7 +97,7 @@ There are several possible approaches to estimating $$ w $$ and finding a good e
 
 有几种可能的方法来估计 $$ w $$ ，找到一个好的估计器可能需要对实际工作负载进行一些实验。最坏情况估计量是 $$ 1/(pointer size) $$ ——整个可到达的堆都是指针——但这太悲观了。更好的估计器是先前垃圾回收周期执行的扫描工作。但是，这可能对堆拓扑中的瞬时变化过于敏感。因此，为了解决这个问题，我们将使用最近周期的扫描工作比率的指数加权移动平均值（EWMA），
 
-![gcpacer_f3](../../assets/post/go/gcpacer_f3.png "gcpacer_f3")
+![gcpacer_f3](/june.github.io/assets/post/go/gcpacer_f3.png "gcpacer_f3")
 
 > 注：最坏情况可到达堆都是指针，即堆指针比例$$ w=(H_m/(pointer~size))/H_m=1/(pointer~size) $$。
 
@@ -105,7 +105,7 @@ where $$ K_w $$ is the weighting coefficient. We’ll start with $$ K_w = 0.75 $
 
 其中$$ K_w $$是加权系数。我们将从$$ K_w = 0.75 $$开始，并根据需要进行调整。在每个周期开始时，垃圾回收器将估计扫描工作$$ W_e(n) $$该周期使用此扫描工作比率估计和前一个周期的标记堆大小作为本周期中可到达堆的估计：
 
-![gcpacer_f4](../../assets/post/go/gcpacer_f4.png "gcpacer_f4")
+![gcpacer_f4](/june.github.io/assets/post/go/gcpacer_f4.png "gcpacer_f4")
 
 If this proves insufficient, it should be possible to use more sophisticated models to account for trends and patterns. It may also be possible to revise the scan work estimate as collection runs, at least if it discovers more scan work than the current estimate.
 
@@ -122,7 +122,7 @@ To address this, the garbage collector will enlist the help of the mutator since
 
 为了解决这个问题，垃圾回收器将寻求mutator的帮助，因为mutator的分配是导致堆大小接近（并可能超过）最大堆大小的原因。因此，分配可以通过执行与分配大小成比例的扫描工作来协助垃圾回收器。令$$ A(x, n) $$表示在第n个GC周期期间应通过分配x字节来执行的辅助扫描工作量。理想中的协助扫描工作量是：
 
-![gcpacer_f5](../../assets/post/go/gcpacer_f5.png "gcpacer_f5")
+![gcpacer_f5](/june.github.io/assets/post/go/gcpacer_f5.png "gcpacer_f5")
 
 For example,if pointers are 8 bytes,the current scan work estimate $$ W_e $$ is $$ 1GB/8 $$,the trigger point $$ H_T $$ is 1.5GB and the heap size goal $$ H_g $$ is 2GB, then $$ A(x,n) = 0.25x $$, so every 4 bytes of allocation will scan 1 pointer. Without background garbage collection, when the allocated heap size reaches 2GB, mutator assists will have performed exactly 1GB worth of scanning work. If $$ W_e $$ is accurate, then collection will finish at exactly the target heap size.
 
@@ -165,7 +165,7 @@ The appropriate value of $$ h_T $$ to avoid heap under or overshoot depends on s
 
 可避免堆下溢或堆过冲的适当$$ h_T $$值取决于几个因素，这些因素在应用程序之间以及执行期间会有所不同。因此，运行时将使用比例控制器在每次垃圾回收后调整$$ h_T $$：
 
-![gcpacer_f6](../../assets/post/go/gcpacer_f6.png "gcpacer_f6")
+![gcpacer_f6](/june.github.io/assets/post/go/gcpacer_f6.png "gcpacer_f6")
 
 where $$ K_T ∈ [0, 1] $$ is the trigger controller’s proportional gain and $$ e(n) $$ is the error term as a heap ratio delta. The value of $$ h_T(0) $$ is unlikely to have significant impact. Based on current heuristics, we’ll set $$ h_T(0) = 7/8 $$ and adjust if this is too aggressive. $$ K_T $$ may also require some tuning. We’ll start with $$ K_T = 0.5 $$.
 
@@ -179,7 +179,7 @@ Instead, the runtime will adjust $$ h_T $$ based on an estimate of what the heap
 
 相反，运行时将根据GC CPU利用率为$$ u_g = 0.25 $$时堆增长的估计来调整$$ h_T $$。这导致了误差项
 
-![gcpacer_f7](../../assets/post/go/gcpacer_f7.png "gcpacer_f7")
+![gcpacer_f7](/june.github.io/assets/post/go/gcpacer_f7.png "gcpacer_f7")
 
 The details of deriving this equation are in appendix A. Note that this reduces to the simpler error term above,$$ e^* $$, if CPU utilization is exactly the goal utilization; that is, if $$ u_a(n) = u_g $$. Otherwise, it uses a scaled heap growth ratioto account for CPU over/underutilization; for example, if utilization is 50%, this assumes the heap would have grown twice as much during garbage collection if utilization were limited to 25%.
 
