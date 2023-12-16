@@ -3,29 +3,31 @@
     <head><meta charset="UTF-8">
 <meta content="text/html; charset=utf-8" http-equiv="Content-Type"><title>Go 1.5 并行垃圾回收步调【译】 · june的博客</title><meta http-equiv="X-UA-Compatible" content="IE=edge" />
 <meta name="description" content="莫挂闲事在心头，便是人间好时节。
-"><meta name="generator" content="Jekyll (using style of GitBook 3.2.3)"><meta name="author" content="june"><link rel="stylesheet" href="/june.github.io/assets/gitbook/style.css">
-<link rel="stylesheet" href="/june.github.io/assets/gitbook/gitbook-plugin-fontsettings/website.css">
-<link rel="stylesheet" href="/june.github.io/assets/gitbook/gitbook-plugin-search-pro/search.css">
-<link rel="stylesheet" href="/june.github.io/assets/gitbook/gitbook-plugin-back-to-top-button/plugin.css">
+"><meta name="generator" content="Jekyll (using style of GitBook 3.2.3)"><meta name="author" content="june"><link rel="stylesheet" href="/assets/gitbook/style.css">
+<link rel="stylesheet" href="/assets/gitbook/gitbook-plugin-fontsettings/website.css">
+<link rel="stylesheet" href="/assets/gitbook/gitbook-plugin-search-pro/search.css">
+<link rel="stylesheet" href="/assets/gitbook/gitbook-plugin-back-to-top-button/plugin.css">
 
-<link rel="stylesheet" href="/june.github.io/assets/gitbook/rouge/colorful.css">
+<link rel="stylesheet" href="/assets/gitbook/rouge/colorful.css">
 
-<link rel="stylesheet" href="/june.github.io/assets/gitbook/custom.css">
-<link rel="stylesheet" href="/june.github.io/assets/gitbook/custom-local.css">
+<link rel="stylesheet" href="/assets/gitbook/custom.css">
+<link rel="stylesheet" href="/assets/gitbook/custom-local.css">
 
 <meta name="HandheldFriendly" content="true"/>
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
-<link rel="apple-touch-icon-precomposed" sizes="152x152" href="/june.github.io/assets/gitbook/images/apple-touch-icon-precomposed-152.png">
-<link rel="shortcut icon" href="/june.github.io//assets/gitbook/images/favicon.ico" type="image/x-icon">
+<link rel="apple-touch-icon-precomposed" sizes="152x152" href="/assets/gitbook/images/apple-touch-icon-precomposed-152.png">
+<link rel="shortcut icon" href="//assets/gitbook/images/favicon.ico" type="image/x-icon">
 
 
 
 
-            <link rel="prev" href="/june.github.io/db/2023-12-03-mysql-new-free-lock.html" />
+            <link rel="prev" href="/db/2023-12-03-mysql-new-free-lock.html" />
         
 
+        
+            <link rel="next" href="/go/2023-12-16-go-soft-hard-heap-goal.html" />
         
     </head>
     <body>
@@ -54,13 +56,13 @@
             <input type="text" placeholder="Type to search" />
         </div>
         <div id="book-search-input-link" role="search">
-            <a href="/june.github.io/assets/search.html">Click to Search</a>
+            <a href="/assets/search.html">Click to Search</a>
         </div>
         <ul class="summary">
             
-            <li class="chapter" data-level="1.1" data-path="/june.github.io">
+            <li class="chapter" data-level="1.1" data-path="">
             
-                <a href="/june.github.io/" onclick="pageScrollToTop(this)">
+                <a href="/" onclick="pageScrollToTop(this)">
                     june的博客
                 </a>
             </li>
@@ -74,9 +76,9 @@
 
                     
                         
-                        <li class="chapter" data-level="1.1" data-path="/june.github.io/pages/about/">
+                        <li class="chapter" data-level="1.1" data-path="/pages/about/">
                         
-                            <a href="/june.github.io/pages/about/" onclick="pageScrollToTop(this)">
+                            <a href="/pages/about/" onclick="pageScrollToTop(this)">
                                 About
                             </a>
                             
@@ -85,9 +87,9 @@
                         </li>
                     
                         
-                        <li class="chapter" data-level="1.1" data-path="/june.github.io/pages/contact/">
+                        <li class="chapter" data-level="1.1" data-path="/pages/contact/">
                         
-                            <a href="/june.github.io/pages/contact/" onclick="pageScrollToTop(this)">
+                            <a href="/pages/contact/" onclick="pageScrollToTop(this)">
                                 Contact Me
                             </a>
                             
@@ -107,9 +109,9 @@
 
                     
                         
-                        <li class="chapter" data-level="1.1" data-path="/june.github.io/db/2023-12-03-mysql-new-free-lock.html">
+                        <li class="chapter" data-level="1.1" data-path="/db/2023-12-03-mysql-new-free-lock.html">
                         
-                            <a href="/june.github.io/db/2023-12-03-mysql-new-free-lock.html" onclick="pageScrollToTop(this)">
+                            <a href="/db/2023-12-03-mysql-new-free-lock.html" onclick="pageScrollToTop(this)">
                                 mysql一种可拓展无锁的WAL新设计【译】
                             </a>
                             
@@ -118,15 +120,48 @@
                         </li>
                     
                         
-                        <li class="chapter active" data-level="1.2" data-path="/june.github.io/go/2023-12-03-go-current-gc-pacing.html">
+                        <li class="chapter active" data-level="1.2" data-path="/go/2023-12-03-go-current-gc-pacing.html">
                         
-                            <a href="/june.github.io/go/2023-12-03-go-current-gc-pacing.html" onclick="pageScrollToTop(this)">
+                            <a href="/go/2023-12-03-go-current-gc-pacing.html" onclick="pageScrollToTop(this)">
                                 Go 1.5 并行垃圾回收步调【译】
                             </a>
                             
                                 
                                     <ul><li><a href="#introduction" onclick="mobilePageScrollToAnchor(this)" >Introduction</a></li><li><a href="#optimization-goals" onclick="mobilePageScrollToAnchor(this)" >Optimization goals</a></li><li><a href="#goal-1-minimize-h_g--h_an-" onclick="mobilePageScrollToAnchor(this)" >Goal 1. Minimize \(|h_g − h_a(n)|\) .</a></li><li><a href="#goal-2-minimize-u_g--u_an" onclick="mobilePageScrollToAnchor(this)" >Goal 2. Minimize \(|u_g − u_a(n)|\).</a></li><li><a href="#design" onclick="mobilePageScrollToAnchor(this)" >Design</a></li><li><a href="#scan-work-estimator" onclick="mobilePageScrollToAnchor(this)" >Scan work estimator</a></li><li><a href="#mutator-assists" onclick="mobilePageScrollToAnchor(this)" >Mutator assists</a></li><li><a href="#cpu-scheduling" onclick="mobilePageScrollToAnchor(this)" >CPU scheduling</a></li><li><a href="#trigger-ratio-controller" onclick="mobilePageScrollToAnchor(this)" >Trigger ratio controller</a></li></ul>
 
+                                
+                            
+                        </li>
+                    
+                        
+                        <li class="chapter" data-level="1.1" data-path="/go/2023-12-16-go-soft-hard-heap-goal.html">
+                        
+                            <a href="/go/2023-12-16-go-soft-hard-heap-goal.html" onclick="pageScrollToTop(this)">
+                                提议：分离出柔性堆和硬性堆目标大小【译】
+                            </a>
+                            
+                                
+                            
+                        </li>
+                    
+                        
+                        <li class="chapter" data-level="1.1" data-path="/go/2023-12-16-tcmalloc-thread-cache-malloc.html">
+                        
+                            <a href="/go/2023-12-16-tcmalloc-thread-cache-malloc.html" onclick="pageScrollToTop(this)">
+                                TCMalloc：线程缓存内存分配【译】
+                            </a>
+                            
+                                
+                            
+                        </li>
+                    
+                        
+                        <li class="chapter" data-level="1.1" data-path="/recommend/2023-12-16-recommend-system-overview.html">
+                        
+                            <a href="/recommend/2023-12-16-recommend-system-overview.html" onclick="pageScrollToTop(this)">
+                                推荐系统设计简述
+                            </a>
+                            
                                 
                             
                         </li>
@@ -184,7 +219,7 @@
 
 <p>在 Go 1.5 之前，Go 使用了并行stop-the-world (STW)回收器。虽然STW回收有很多缺点，但它至少具有可预测且可控的堆增长行为。STW回收器的唯一调整旋钮是“GOGC”，即两次回收之间的相对堆增长。默认设置100% 会在每次堆大小比上次回收时的活动堆大小增加一倍时触发垃圾收器，如图1所示。</p>
 
-<p><img src="/june.github.io/assets/post/go/gcpacer_f1.png" alt="gcpacer_f1" title="gcpacer_f1" /></p>
+<p><img src="/assets/post/go/gcpacer_f1.png" alt="gcpacer_f1" title="gcpacer_f1" /></p>
 
 <p>Go 1.5 introduces a concurrent collector. This has many advantages over STW collection, but it makes heap growth harder to control because the application can allocate memory while the garbage collector is running. To achieve the same heap growth limit the runtime must start garbage collection earlier, but how much earlier depends on many variables, many of which cannot be predicted. Start the collector too early, and the application will perform too many garbage collections, wasting CPU resources. Start the collector too late, and the application will exceed the desired maximum heap growth. Achieving the right balance without sacrificing concurrency requires carefully pacing the garbage collector.</p>
 
@@ -200,7 +235,7 @@
 
 <p>GC 步调旨在沿着两个维度进行优化：堆增长和用于垃圾回收的CPU利用率。</p>
 
-<p><img src="/june.github.io/assets/post/go/gcpacer_f2.png" alt="gcpacer_f2" title="gcpacer_f2" /></p>
+<p><img src="/assets/post/go/gcpacer_f2.png" alt="gcpacer_f2" title="gcpacer_f2" /></p>
 
 <p>A Go user expresses the desired maximum heap growth by setting GOGC to percent heap growth from one garbage collection cycle to the next. Let \(h_g = GOGC / 100\) 
 denote this goal growth ratio.That is, if H_m(n) is the total size of marked objects following the nth GC cycle, then the goal heap size is \(H_g(n) = H_m(n − 1) ∙ (1 + h_g)\). 
@@ -270,7 +305,7 @@ which should be much more stable.</p>
 
 <p>有几种可能的方法来估计 \(w\) ，找到一个好的估计器可能需要对实际工作负载进行一些实验。最坏情况估计量是 \(1/(pointer size)\) ——整个可到达的堆都是指针——但这太悲观了。更好的估计器是先前垃圾回收周期执行的扫描工作。但是，这可能对堆拓扑中的瞬时变化过于敏感。因此，为了解决这个问题，我们将使用最近周期的扫描工作比率的指数加权移动平均值（EWMA），</p>
 
-<p><img src="/june.github.io/assets/post/go/gcpacer_f3.png" alt="gcpacer_f3" title="gcpacer_f3" /></p>
+<p><img src="/assets/post/go/gcpacer_f3.png" alt="gcpacer_f3" title="gcpacer_f3" /></p>
 
 <blockquote>
   <p>注：最坏情况可到达堆都是指针，即堆指针比例\(w=(H_m/(pointer~size))/H_m=1/(pointer~size)\)。</p>
@@ -280,7 +315,7 @@ which should be much more stable.</p>
 
 <p>其中\(K_w\)是加权系数。我们将从\(K_w = 0.75\)开始，并根据需要进行调整。在每个周期开始时，垃圾回收器将估计扫描工作\(W_e(n)\)该周期使用此扫描工作比率估计和前一个周期的标记堆大小作为本周期中可到达堆的估计：</p>
 
-<p><img src="/june.github.io/assets/post/go/gcpacer_f4.png" alt="gcpacer_f4" title="gcpacer_f4" /></p>
+<p><img src="/assets/post/go/gcpacer_f4.png" alt="gcpacer_f4" title="gcpacer_f4" /></p>
 
 <p>If this proves insufficient, it should be possible to use more sophisticated models to account for trends and patterns. It may also be possible to revise the scan work estimate as collection runs, at least if it discovers more scan work than the current estimate.</p>
 
@@ -296,7 +331,7 @@ which should be much more stable.</p>
 
 <p>为了解决这个问题，垃圾回收器将寻求mutator的帮助，因为mutator的分配是导致堆大小接近（并可能超过）最大堆大小的原因。因此，分配可以通过执行与分配大小成比例的扫描工作来协助垃圾回收器。令\(A(x, n)\)表示在第n个GC周期期间应通过分配x字节来执行的辅助扫描工作量。理想中的协助扫描工作量是：</p>
 
-<p><img src="/june.github.io/assets/post/go/gcpacer_f5.png" alt="gcpacer_f5" title="gcpacer_f5" /></p>
+<p><img src="/assets/post/go/gcpacer_f5.png" alt="gcpacer_f5" title="gcpacer_f5" /></p>
 
 <p>For example,if pointers are 8 bytes,the current scan work estimate \(W_e\) is \(1GB/8\),the trigger point \(H_T\) is 1.5GB and the heap size goal \(H_g\) is 2GB, then \(A(x,n) = 0.25x\), so every 4 bytes of allocation will scan 1 pointer. Without background garbage collection, when the allocated heap size reaches 2GB, mutator assists will have performed exactly 1GB worth of scanning work. If \(W_e\) is accurate, then collection will finish at exactly the target heap size.</p>
 
@@ -339,7 +374,7 @@ but this approach lets a mutator accumulate credit for additional scanning work 
 
 <p>可避免堆下溢或堆过冲的适当\(h_T\)值取决于几个因素，这些因素在应用程序之间以及执行期间会有所不同。因此，运行时将使用比例控制器在每次垃圾回收后调整\(h_T\)：</p>
 
-<p><img src="/june.github.io/assets/post/go/gcpacer_f6.png" alt="gcpacer_f6" title="gcpacer_f6" /></p>
+<p><img src="/assets/post/go/gcpacer_f6.png" alt="gcpacer_f6" title="gcpacer_f6" /></p>
 
 <p>where \(K_T ∈ [0, 1]\) is the trigger controller’s proportional gain and \(e(n)\) is the error term as a heap ratio delta. The value of \(h_T(0)\) is unlikely to have significant impact. Based on current heuristics, we’ll set \(h_T(0) = 7/8\) and adjust if this is too aggressive. \(K_T\) may also require some tuning. We’ll start with \(K_T = 0.5\).</p>
 
@@ -353,7 +388,7 @@ but this approach lets a mutator accumulate credit for additional scanning work 
 
 <p>相反，运行时将根据GC CPU利用率为\(u_g = 0.25\)时堆增长的估计来调整\(h_T\)。这导致了误差项</p>
 
-<p><img src="/june.github.io/assets/post/go/gcpacer_f7.png" alt="gcpacer_f7" title="gcpacer_f7" /></p>
+<p><img src="/assets/post/go/gcpacer_f7.png" alt="gcpacer_f7" title="gcpacer_f7" /></p>
 
 <p>The details of deriving this equation are in appendix A. Note that this reduces to the simpler error term above,\(e^*\), if CPU utilization is exactly the goal utilization; that is, if \(u_a(n) = u_g\). Otherwise, it uses a scaled heap growth ratioto account for CPU over/underutilization; for example, if utilization is 50%, this assumes the heap would have grown twice as much during garbage collection if utilization were limited to 25%.</p>
 
@@ -401,11 +436,15 @@ window.MathJax = {
 
 
 <script async src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
-                        <a href="/june.github.io/db/2023-12-03-mysql-new-free-lock.html" class="navigation navigation-prev navigation-unique" aria-label="Previous page: mysql一种可拓展无锁的WAL新设计【译】">
+                        <a href="/db/2023-12-03-mysql-new-free-lock.html" class="navigation navigation-prev navigation-unique" aria-label="Previous page: mysql一种可拓展无锁的WAL新设计【译】">
                             <i class="fa fa-angle-left"></i>
                         </a>
                     
 
+                    
+                        <a href="/go/2023-12-16-go-soft-hard-heap-goal.html" class="navigation navigation-next navigation-unique" aria-label="Next page: 提议：分离出柔性堆和硬性堆目标大小【译】">
+                            <i class="fa fa-angle-right"></i>
+                        </a>
                     
                 </div>
             </div>
@@ -418,6 +457,15 @@ window.MathJax = {
         "title": "Introduction",
         "level": "1.1",
         "depth": 1,
+        
+        "next": {
+            "title": "提议：分离出柔性堆和硬性堆目标大小【译】",
+            "level": "1.2",
+            "depth": 1,
+            "path": "_posts/go/2023-12-16-go-soft-hard-heap-goal.md",
+            "ref": "_posts/go/2023-12-16-go-soft-hard-heap-goal.md",
+            "articles": []
+        },
         
         "dir": "ltr"
     },    "config": {
@@ -503,15 +551,15 @@ window.MathJax = {
         "gitbook": "*"
     },
     "file": {
-        "path": "_posts/go/2023-07-23-go-current-gc-pacing.md",
+        "path": "_posts/go/2023-12-03-go-current-gc-pacing.md",
         "mtime": "2023-12-03 00:00:00 +0800",
         "type": "markdown"
     },
     "gitbook": {
         "version": "3.2.3",
-        "time": "2023-12-12 23:16:24 +0800"
+        "time": "2023-12-16 22:17:21 +0800"
     },
-    "basePath": "/june.github.io",
+    "basePath": "",
     "book": {
         "language": ""
     }
@@ -519,21 +567,21 @@ window.MathJax = {
             });
             </script>
 
-        </div><script src="/june.github.io/assets/gitbook/gitbook.js"></script>
-<script src="/june.github.io/assets/gitbook/theme.js"></script>
+        </div><script src="/assets/gitbook/gitbook.js"></script>
+<script src="/assets/gitbook/theme.js"></script>
 
-<script src="/june.github.io/assets/gitbook/gitbook-plugin-fontsettings/fontsettings.js"></script>
-<script src="/june.github.io/assets/gitbook/gitbook-plugin-sharing/buttons.js"></script>
+<script src="/assets/gitbook/gitbook-plugin-fontsettings/fontsettings.js"></script>
+<script src="/assets/gitbook/gitbook-plugin-sharing/buttons.js"></script>
 
 <!-- <script src="../gitbook/gitbook-plugin-lunr/lunr.min.js"></script>
 <script src="../gitbook/gitbook-plugin-lunr/search-lunr.js"></script>
 <script src="../gitbook/gitbook-plugin-search/search-engine.js"></script>
 <script src="../gitbook/gitbook-plugin-search/search.js"></script> -->
 
-<script src="/june.github.io/assets/gitbook/gitbook-plugin-search-pro/jquery.mark.min.js"></script>
-<script src="/june.github.io/assets/gitbook/gitbook-plugin-search-pro/search.js"></script>
-<script src="/june.github.io/assets/gitbook/gitbook-plugin-back-to-top-button/plugin.js"></script>
-<script src="/june.github.io/assets/gitbook/gitbook-plugin-copy-code-button/toggle.js"></script>
+<script src="/assets/gitbook/gitbook-plugin-search-pro/jquery.mark.min.js"></script>
+<script src="/assets/gitbook/gitbook-plugin-search-pro/search.js"></script>
+<script src="/assets/gitbook/gitbook-plugin-back-to-top-button/plugin.js"></script>
+<script src="/assets/gitbook/gitbook-plugin-copy-code-button/toggle.js"></script>
 
 </body>
 </html>
