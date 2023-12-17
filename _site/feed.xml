@@ -1,5 +1,309 @@
-<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="http://localhost:4000/feed.xml" rel="self" type="application/atom+xml" /><link href="http://localhost:4000/" rel="alternate" type="text/html" /><updated>2023-12-16T22:17:21+08:00</updated><id>http://localhost:4000/feed.xml</id><title type="html">june的博客</title><subtitle>莫挂闲事在心头，便是人间好时节。
-</subtitle><author><name>june</name></author><entry><title type="html">提议：分离出柔性堆和硬性堆目标大小【译】</title><link href="http://localhost:4000/go/2023-12-16-go-soft-hard-heap-goal.html" rel="alternate" type="text/html" title="提议：分离出柔性堆和硬性堆目标大小【译】" /><published>2023-12-16T00:00:00+08:00</published><updated>2023-12-16T00:00:00+08:00</updated><id>http://localhost:4000/go/go-soft-hard-heap-goal</id><content type="html" xml:base="http://localhost:4000/go/2023-12-16-go-soft-hard-heap-goal.html">&lt;p&gt;原文：《&lt;a href=&quot;https://go.googlesource.com/proposal/+/master/design/14951-soft-heap-limit.md&quot;&gt;Proposal: Separate soft and hard heap size goal&lt;/a&gt;》&lt;/p&gt;
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="http://localhost:4000/feed.xml" rel="self" type="application/atom+xml" /><link href="http://localhost:4000/" rel="alternate" type="text/html" /><updated>2023-12-17T13:33:48+08:00</updated><id>http://localhost:4000/feed.xml</id><title type="html">june的博客</title><subtitle>莫挂闲事在心头，便是人间好时节。
+</subtitle><author><name>june</name></author><entry><title type="html">tensorflow serving一些优化经验</title><link href="http://localhost:4000/recommend/2023-12-17-tfserving-optimizatioin.html" rel="alternate" type="text/html" title="tensorflow serving一些优化经验" /><published>2023-12-17T00:00:00+08:00</published><updated>2023-12-17T00:00:00+08:00</updated><id>http://localhost:4000/recommend/tfserving-optimizatioin</id><content type="html" xml:base="http://localhost:4000/recommend/2023-12-17-tfserving-optimizatioin.html">&lt;h3 id=&quot;内存泄漏&quot;&gt;内存泄漏&lt;/h3&gt;
+
+&lt;p&gt;tensorflow serving（下文称tf）上线之后一段时间之后，发现pod内存一直在平稳地增长。观察服务监控发现，模型版本迭代热更新时，旧版本模型虽然tf已经卸载，但内存没有释放回操作系统。&lt;/p&gt;
+
+&lt;p&gt;解决办法：把 malloc 换成 jemalloc 可以解决。&lt;/p&gt;
+
+&lt;h3 id=&quot;开启预热&quot;&gt;开启预热&lt;/h3&gt;
+
+&lt;p&gt;tf加载模型是以下步骤：&lt;/p&gt;
+&lt;ol&gt;
+  &lt;li&gt;创建一个DirectSession；&lt;/li&gt;
+  &lt;li&gt;将模型的Graph加载到 Session 中；&lt;/li&gt;
+  &lt;li&gt;执行Graph中的Restore Op来将变量从模型中读取到内存；&lt;/li&gt;
+  &lt;li&gt;执行Graph中的Init Op做相关的模型初始化；&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;如果配置了Warmup，执行Warmup操作，通过定义好的样本来预热模型。
+tf的模型执行有个非常显著的特点是lazy initialization，也就是如果没有Warmup，当TF加载完模型，其实只是加载了Graph 和变量，Graph中的OP其实并没有做初始化，只有当客户端第一次发请求过来时，才会开始初始化OP。因此需要开启预热，否则加载完模型，首次推理请求tf延迟会特别高。&lt;/p&gt;
+
+&lt;h3 id=&quot;设置加载和卸载模型线程数&quot;&gt;设置加载和卸载模型线程数&lt;/h3&gt;
+
+&lt;p&gt;tf有两个参数num_load_threads和num_unload_threads，分别用来设置tf加载模型和卸载模型的线程数。从下图官方文档介绍，这两个参数默认为0，不额外设置线程数，加载和卸载模型会在manager的主线程操作，这会导致tf推理请求延迟。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&quot;language-cpp{.line-numbers}&quot;&gt;tensorflow::Flag(&quot;num_load_threads&quot;, &amp;amp;options.num_load_threads,
+                       &quot;The number of threads in the thread-pool used to load &quot;
+                       &quot;servables. If set as 0, we don&apos;t use a thread-pool, &quot;
+                       &quot;and servable loads are performed serially in the &quot;
+                       &quot;manager&apos;s main work loop, may casue the Serving &quot;
+                       &quot;request to be delayed. Default: 0&quot;),
+      tensorflow::Flag(&quot;num_unload_threads&quot;, &amp;amp;options.num_unload_threads,
+                       &quot;The number of threads in the thread-pool used to &quot;
+                       &quot;unload servables. If set as 0, we don&apos;t use a &quot;
+                       &quot;thread-pool, and servable loads are performed serially &quot;
+                       &quot;in the manager&apos;s main work loop, may casue the Serving &quot;
+                       &quot;request to be delayed. Default: 0&quot;),
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h3 id=&quot;tensorflow-serving服务绑核&quot;&gt;tensorflow serving服务绑核&lt;/h3&gt;
+
+&lt;p&gt;模型的推理预测，是要进行大量计算的，所以tf是cpu密集型服务。当tf部署在k8s上，tf的pod和其它服务的pod部署在同一个节点，就容易出现cpu资源竞争问题。特别当业务高峰期，因cpu资源竞争而导致节流的问题会比较突出，因此，可针对tf这种cpu密集型服务进行绑核处理。&lt;/p&gt;
+
+&lt;p&gt;绑核之后效果如下图：绑核之后，tf的毛刺得到很大减缓，非业务高峰期，模型请求毛刺从300ms下降到80ms左右。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/post/recommend/tfoptimization_f1.png&quot; alt=&quot;tfoptimization_f1&quot; title=&quot;tfoptimization_f1&quot; /&gt;&lt;/p&gt;
+
+&lt;h3 id=&quot;调整会话线程参数&quot;&gt;调整会话线程参数&lt;/h3&gt;
+
+&lt;p&gt;tf有两个会话线程参数&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;tensorflow_inter_op_parallelism&lt;/code&gt;和&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;tensorflow_intra_op_parallelism&lt;/code&gt;。&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;tensorflow_inter_op_parallelism&lt;/code&gt;：表示算子间并行操作线程池。tensorflow图中有许多独立的操作，因为在数据流图中它们之间没有定向路径，tensorflow将尝试并发运行它们，使用具有&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;inter_op_parallelism_threads&lt;/code&gt;线程的线程池。&lt;/li&gt;
+  &lt;li&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;tensorflow_intra_op_parallelism&lt;/code&gt;：表示算子内并行操作的线程池。例如矩阵乘法（&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;tf.matmul()&lt;/code&gt;）或减少（例如&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;tf.reduce_sum()&lt;/code&gt;），TensorFlow将通过在线程池中调度任务来执行它&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;intra_op_parallelism_threads&lt;/code&gt;线程。&lt;/li&gt;
+  &lt;li&gt;两个会话参数值相加起来等于pod的cpu核数为佳。绑核之后，调整了pod资源，cpu个数从16核调整10核，pod hpa min从10调整为12，inter_op和infra_op线程数分别设置为6和4。因在推荐模型inter_op计算量更大，所以inter_op分配更多的线程数。模型推理预测P99耗时在30~40ms左右。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/post/recommend/tfoptimization_f2.png&quot; alt=&quot;tfoptimization_f2&quot; title=&quot;tfoptimization_f2&quot; /&gt;&lt;/p&gt;
+
+&lt;h3 id=&quot;tf-sdk侧优化&quot;&gt;tf sdk侧优化&lt;/h3&gt;
+
+&lt;h4 id=&quot;请求分片&quot;&gt;请求分片&lt;/h4&gt;
+
+&lt;p&gt;当前推荐业务进入到精排进行模型推理预测的item数从几百到上千不等，模型单次处理这么大的请求，很容易因为某个任务计算量大，占用计算资源，导致其它小任务阻塞等待，从而导致长尾效应，P99波动较大。因此可将单个大的推理请求拆分成多个小的推理请求。比如，一个推理请求需要模型给700个item打分，可分成单次200个item的4并行请求。&lt;/p&gt;
+
+&lt;p&gt;下图即是请求分片后的效果：模型请求分别拆成200item，100item的小请求，模型耗时从30+ms分别降到18ms和12ms。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/post/recommend/tfoptimization_f3.png&quot; alt=&quot;tfoptimization_f3&quot; title=&quot;tfoptimization_f3&quot; /&gt;&lt;/p&gt;
+
+&lt;h4 id=&quot;多协程特征处理以及使用对象池&quot;&gt;多协程特征处理以及使用对象池&lt;/h4&gt;
+
+&lt;p&gt;在tf模型模型推理请求之前，我们需要将特征处理成tf sdk的请求报文协议格式，因一个item可能会有上百个特征，单个特征还可能是向量，所以这必然导致在特征处理这块会有频繁的对象创建和销毁问题。以及上文提到的请求分配，需要将请求拆分成多个请求分片，必然涉及到一定量的计算，所以这块需要开多协程处理。&lt;/p&gt;
+
+&lt;h4 id=&quot;其它&quot;&gt;其它&lt;/h4&gt;
+
+&lt;p&gt;除此之外，我们还尝试了开启batch，重新编译优化tensorflow serving，以及压缩tf请求报文，但这些优化手段并不符合我们当前tf的使用场景，优化效果不明显，甚至效果还是负向的。&lt;/p&gt;</content><author><name>june</name></author><category term="recommend" /><summary type="html">内存泄漏</summary></entry><entry><title type="html">golang推荐服务的一些优化经验</title><link href="http://localhost:4000/recommend/2023-12-17-recommend-optimization.html" rel="alternate" type="text/html" title="golang推荐服务的一些优化经验" /><published>2023-12-17T00:00:00+08:00</published><updated>2023-12-17T00:00:00+08:00</updated><id>http://localhost:4000/recommend/recommend-optimization</id><content type="html" xml:base="http://localhost:4000/recommend/2023-12-17-recommend-optimization.html">&lt;h3 id=&quot;背景&quot;&gt;背景&lt;/h3&gt;
+
+&lt;p&gt;一个常规的推荐接口需要经过召回，粗排，精排，重排等阶段，相同流量体量下，相比常规服务端接口，推荐接口复杂程度更高，面临的挑战也更大。但因为推荐系统对数据延迟性容忍度比较高的特性，所以推荐服务有比较大的优化空间。本文将阐述golang推荐服务经常碰到的性能问题，以及优化思路和经验。&lt;/p&gt;
+
+&lt;blockquote&gt;
+  &lt;p&gt;若读者对推荐流程不了解，建议先阅读上一篇文章《&lt;a href=&quot;2023-12-16-recommend-system-overview.html&quot;&gt; 推荐系统设计简述 &lt;/a&gt;》&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;h3 id=&quot;问题&quot;&gt;问题&lt;/h3&gt;
+
+&lt;p&gt;推荐是从N个item对象里，下发M个符合用户偏好的item对象，且M远小于N（M数量级为千或万，N数量级一般为个位数，最多也不会超过20）。所以用户和item是一对多的关系。所以对于推荐服务，在item侧，问题很容易被放大，而且这也往往是推荐服务的性能瓶颈。&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;服务计算量大。举个例子，一个推荐请求，往往是从全量的item对象池里召回符合条件的item对象，假设QPS为1k，item对象全量有1w，每次召回对item做1次条件判断，那么1s就会有1k&lt;em&gt;1w&lt;/em&gt;1=1000w次计算。但单个item往往不会只有1次条件判断。因此在item侧，一个很小的问题很容易被放大。&lt;/li&gt;
+  &lt;li&gt;容易产生较多临时对象，从而导致频繁申请释放对象，gc频率和耗时都变高，从而影响服务的性能。比如上面的例子，在对单个item的一次条件判断过程中产生8Bytes的临时对象，那么1s中就产生了约76MB的临时对象内存。&lt;/li&gt;
+  &lt;li&gt;容易产生长任务，从而导致服务出现长尾效应。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id=&quot;优化三大原则&quot;&gt;优化三大原则&lt;/h3&gt;
+
+&lt;p&gt;服务优化总结下来，基本遵循三个原则：减少，降频和复用。&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;减少：去掉已下线业务逻辑，精简请求数据量，减少网络请求。&lt;/li&gt;
+  &lt;li&gt;降频：一般都是空间换时间思路，比如数据结构从list改为map结构，检索元素事件复杂度从O(N)变为O(1)。&lt;/li&gt;
+  &lt;li&gt;复用：对象复用，避免频繁创建和回收对象。常规做法是使用对象池。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id=&quot;推荐服务优化经验&quot;&gt;推荐服务优化经验&lt;/h3&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;
+    &lt;p&gt;&lt;strong&gt;缓存预热&lt;/strong&gt;。一次推荐请求，无论是在召回，不但需从召回池多路召回item对象，还需请求上千上万item对象的召回画像，还是在精排，需请求几百个item对象的上百个item特征画像，请求量都是巨大的。若不做缓存预热，每次请求都打到召回服务和画像服务，召回服务和画像服务都需承受巨大的压力，特别是QPS高，业务逻辑复杂的推荐场景。又由于推荐服务对数据延迟性容忍度比较高，可根据不同推荐场景，针对不同召回队列的召回结果，以及对画像数据做不同的缓存策略。 &lt;br /&gt;
+比如定时预拉取召回量大的或者请求频率高的召回队列及其item画像至本地，甚至召回池不大的推荐场景，可全量预拉取item对象及其画像至本地，再比如根据不同的画像决定是采取LRU还是LFU缓存策略。&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;&lt;strong&gt;避免频繁产生过多临时对象&lt;/strong&gt;。假若推荐接口QPS为1k，多路召回队列总共召回1w个对象，则1s产生1kw个临时对象。这势必会导致服务gc频繁，成为服务性能瓶颈。因此，对于频繁创建的对象使用对象池，比如召回对象，画像对象，特征对象等使用对象池，对象池大小即为QPS乘于单次请求产生的对象数量。&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;&lt;strong&gt;提高并行度&lt;/strong&gt;：串行请求改为并行请求，大任务拆分小任务并行处理。将无先后顺序的串行远程调用改为并行请求，则多个请求耗时取决于耗时最长的远程调用。比如，推荐请求的数据准备阶段，ab系统实验数据获取，用户侧画像数据获取和曝光过滤器获取，哪个远程调用先请求都可以，并无先后顺序依赖，即可改为并行请求。&lt;br /&gt;
+除此之外，还可将大任务拆分多个小任务并行处理。举个例子，精排阶段，几百个item对象，一个item特征可能会有上百个特征，一个特征可能会需要执行几个算子，一次请求，特征处理计算量非常大。并且，将几百个item的那么多特征数据塞进一个请求里调用模型服务，网络传输耗时也是不可忽视的。不仅如此，对于模型服务，单个请求推理预测任务计算量过大，也容易造成其它小请求的任务阻塞，从而形成长尾效应。 &lt;br /&gt;
+因此，对于精排阶段，可将需进行特征处理和模型打分的item对象大数组拆分成几个小数组，多协程并行处理各自小数组的item对象的特征以及模型预测打分。不但提高cpu资源的利用率，还降低特征传输的网络耗时以及减轻模型服务的长尾效应。&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;&lt;strong&gt;空间换时间&lt;/strong&gt;。用空间复杂度换取时间复杂度是常见的一种优化思路。比如，某个数据的数据结构由slince改成map，底层存储变复杂了，但查找某个元素时间复杂度由O(n)变为了O(1)。特别是针对item对象的数据，数据结构由list改为map大大降低了时间复杂度。但元素个数较大，也需要考虑map数据结构扩容带来的性能问题。总之，空间复杂度和时间复杂度需根据实际情况来进行取舍。&lt;/p&gt;
+  &lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id=&quot;关于k8s的调整&quot;&gt;关于k8s的调整&lt;/h3&gt;
+
+&lt;p&gt;如果服务部署在k8s上，可利用k8s的特性来提高服务系统的稳定性。比如：&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;&lt;strong&gt;绑核&lt;/strong&gt;。绑核即是pod独占所需的cpu core。绑核对于计算密集型的推荐服务性能提升尤为显著。比如加载深度学习模型的tensorflow serving服务，就以笔者工作所负责的推荐场景为例，绑核之前，tensorflow serving推理预测请求预测P99耗时毛刺尤为严重，最高可达300+ms，绑核之后推理预测请求P99耗时稳定在80+ms，再加上前面所讲的大请求拆分小请求，最终稳定在30ms左右。&lt;/li&gt;
+  &lt;li&gt;&lt;strong&gt;定时伸缩容&lt;/strong&gt;。k8s的hpa伸缩容或许没那么灵敏，对于一些容易有突发流量的推荐服务，或者稳定性要求比较高的推荐服务，可针对业务高峰期和低峰期不同时间段做伸缩容。&lt;/li&gt;
+  &lt;li&gt;&lt;strong&gt;节点做业务隔离&lt;/strong&gt;。不同业务场景节点应该隔离，特别是和一些资源要求比较高的业务，k8s部署的节点区分开来。笔者所在公司，就曾将推荐服务和其它资源要求高的业务服务部署混合在一起部署，推荐服务的pod所需的cpu资源竞争不过，导致cpu被严重节流，从而影响推荐服务的性能。&lt;/li&gt;
+&lt;/ul&gt;</content><author><name>june</name></author><category term="recommend" /><summary type="html">背景</summary></entry><entry><title type="html">tensorflow serving模型加载高延迟问题排查</title><link href="http://localhost:4000/recommend/2023-12-17-tfserving-model-load-delay.html" rel="alternate" type="text/html" title="tensorflow serving模型加载高延迟问题排查" /><published>2023-12-17T00:00:00+08:00</published><updated>2023-12-17T00:00:00+08:00</updated><id>http://localhost:4000/recommend/tfserving-model-load-delay</id><content type="html" xml:base="http://localhost:4000/recommend/2023-12-17-tfserving-model-load-delay.html">&lt;p&gt;笔者预设读者对tensorflow serving（下文简称tf）有一定了解基础，因此在一些和本文不太相关的tf相关知识不会做过多描述。本文介绍的从源码层面分析在生产环境碰到tf模型加载高延迟的一次问题排查过程。&lt;/p&gt;
+
+&lt;h3 id=&quot;问题背景&quot;&gt;问题背景&lt;/h3&gt;
+
+&lt;p&gt;tf在生产环境部署投入使用一段时间后，发现每次更新tf模型加载配置文件model.config到tf加载完模型时间间隔偶尔会变得很长，而且这个时间变长的频率越来越高。更新model.config到tf加载模型完成正常的时间是10s左右，一般都会在20s内加载完成模型。但现在这个时间可能会达到分钟级别。&lt;/p&gt;
+
+&lt;blockquote&gt;
+  &lt;p&gt;注：tf部署在k8s，云厂商为华为云，模型存储在华为云对象存储obs上，tf通过挂载obs访问模型路径。&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;我们抓取了日志，日志显示09:59:19修改了tf模型配置文件，tf 09:59:58开始加载模型，10:00:01完成模型加载。&lt;/p&gt;
+
+&lt;h3 id=&quot;tf模型加载流程&quot;&gt;tf模型加载流程&lt;/h3&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/post/recommend/tfmodelload_f3.png&quot; alt=&quot;tfmodelload_f3&quot; title=&quot;tfmodelload_f3&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;Source是tf定义的对未加载模型对象的抽象，目前实现了两种Source，一种是StaticStoragePathSource，一种是FileSystemStoragePathSource。 前者是简单的静态的模型文件存储系统，仅仅在启动时触发模型的加载，没有其他动作。后者是动态的Source，能监测存储系统的变化并发出通知。&lt;/p&gt;
+
+&lt;p&gt;tf实现Source时将模块职责划分的很清晰，Source的职责就是监测变化，如何处理则由Source的用户决定，所以Source有一个接口SetAspiredVersionsCallback， 可以设置回调函数用于通知AspiredVersion的变化。Source在变化的时候就会调用设置的回调函数。&lt;/p&gt;
+
+&lt;p&gt;作为Source的对等对象，系统也定义了Target，有接口GetAspiredVersionsCallback，用于获取处理AspiredVersions的回调接口，然后我们就可以将Target和Source连起来了。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&quot;language-cpp{.line-numbers}&quot;&gt;template &amp;lt;typename T&amp;gt; void ConnectSourceToTarget(Source&amp;lt;T&amp;gt;* source, Target&amp;lt;T&amp;gt;* target) {
+    source-&amp;gt;SetAspiredVersionsCallback(target-&amp;gt;GetAspiredVersionsCallback());
+}
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;Source和ServerCore的关系是这样的：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&quot;language-cpp{.line-numbers}&quot;&gt;Source --&amp;gt; Router --&amp;gt; Adapter --&amp;gt; AspiredVersionManager
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;上述连接关系里，Router和Adapter既是Source又是Target，AspiredVersionManager是Target。但是Router没有实现Source接口，而是要求在创建Router对象时直接将Adapter作为参数，这样实现主要目的是创建一对多的关系。&lt;/p&gt;
+
+&lt;p&gt;系统根据所支持平台的个数（tensorflow算是一种平台）创建Adapter，一种平台对应一个Adapter，负责创建模型加载器Loader。对于tensorflow平台，对应的adapter是SavedModelBundleSourceAdapter。&lt;/p&gt;
+
+&lt;p&gt;Router负责根据模型名称查找对应的平台(model.config里面有指定平台名称)，从而定位到对应的Adapter。&lt;/p&gt;
+
+&lt;p&gt;这些连接关系是在系统启动, 或者更新model.config的时候建立的。&lt;/p&gt;
+
+&lt;p&gt;默认配置下，FileSystemStoragePathSource为Source的实例，SavedModelBundle-SourceAdapter为Adapter的实例，DynamicSourceRouter为Router的实例：&lt;/p&gt;
+&lt;ol&gt;
+  &lt;li&gt;FileSystemStoragePathSource有自己单独的工作线程, 周期查询文件系统, 发现每个模型的版本, 根据指定的servable_version_policy(model_config), 创建ServableData(模型名, 版本号, 路径), 传给Router&lt;/li&gt;
+  &lt;li&gt;Router根据路由找到对应的adapter, 传给Adataper&lt;/li&gt;
+  &lt;li&gt;Adapter将ServableData(模型名, 版本号, 路径)转换成ServableData(模型名, 版本, Loader), 传给AspiredVersionManager&lt;/li&gt;
+  &lt;li&gt;AspiredVersionManager将这些信息存到pending_aspired_versions_requests_, 等待另外一个工作线程(AspiredVersionsManager_ManageState_Thread)处理。&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;具体请参考该文章：《&lt;a href=&quot;https://naurril.github.io/howtos/2018/08/22/inside_tfs.html&quot;&gt;Tensorflow Serving的原理和代码实现&lt;/a&gt;》&lt;/p&gt;
+
+&lt;blockquote&gt;
+  &lt;p&gt;小结：有一个工作线程，周期查询model.config模型配置文件，并将配置的模型转换成ServableData，并转换传给AspiredVersionManager。且AspiredVersionManager会起一个工作线程处理ServableData对应的模型。&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;h3 id=&quot;排查过程&quot;&gt;排查过程&lt;/h3&gt;
+
+&lt;h4 id=&quot;查看日志&quot;&gt;查看日志&lt;/h4&gt;
+
+&lt;p&gt;周期性检查一次model.config文件耗时偶尔会耗时很高，有时十几秒，有时一分多钟。且阻塞在Finished adding/updating models前的步骤上。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/post/recommend/tfmodelload_f4.png&quot; alt=&quot;tfmodelload_f4&quot; title=&quot;tfmodelload_f4&quot; /&gt;&lt;/p&gt;
+
+&lt;h4 id=&quot;开启tf的vlog日志&quot;&gt;开启TF的VLOG日志&lt;/h4&gt;
+
+&lt;p&gt;tf有两种类型日志，一是通过我们常见的debug，info，warn，error级别日志，一是VLOG日志，通过1，2，3，4区分日志级别。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&quot;language-cpp{.line-numbers}&quot;&gt;## tf启动增加如下参数开启VLOG(1)级别参数
+--TF_CPP_MAX_VLOG_LEVEL=1
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;&lt;img src=&quot;/assets/post/recommend/tfmodelload_f5.png&quot; alt=&quot;tfmodelload_f5&quot; title=&quot;tfmodelload_f5&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;通过日志可知，tf除了周期性检查model_config文件，还会周期性检查已加载的模型（也就是前面所讲AspiredVersionManager周期性检查ServableData模型的工作线程）。此时开始怀疑是否这两个线程是否存在锁的竞争，导致周期检查model_config的线程长期处于饥饿状态。&lt;/p&gt;
+
+&lt;h4 id=&quot;周期性检查已加载模型任务线程代码分析&quot;&gt;周期性检查已加载模型任务线程代码分析&lt;/h4&gt;
+
+&lt;p&gt;AspiredVersionManager会起一个工作线程处理ServableData，对应的模型代码分析：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&quot;language-cpp{.line-numbers}&quot;&gt;// 线程任务函数
+ const auto thread_fn = [this](void) {
+  Status status = this-&amp;gt;PollFileSystemAndInvokeCallback();
+  if (!status.ok()) {
+    LOG(ERROR) &amp;lt;&amp;lt; &quot;FileSystemStoragePathSource encountered a &quot;
+                  &quot;filesystem access error: &quot;
+               &amp;lt;&amp;lt; status.error_message();
+  }
+};
+ 
+ // Start a thread to poll the filesystem periodically and call the callback.
+    PeriodicFunction::Options pf_options;  // 起定时器左右
+    pf_options.thread_name_prefix =
+        &quot;FileSystemStoragePathSource_filesystem_polling_thread&quot;;
+    // 周期性执行thread_fn
+    fs_polling_thread_.reset(new FileSystemStoragePathSource::ThreadType(
+        absl::in_place_type_t&amp;lt;PeriodicFunction&amp;gt;(), thread_fn,
+        config_.file_system_poll_wait_seconds() * 1000000, pf_options));
+  }
+  
+Status FileSystemStoragePathSource::PollFileSystemAndInvokeCallback() {
+  mutex_lock l(mu_);  // 获取mu_互斥锁
+  std::map&amp;lt;string, std::vector&amp;lt;ServableData&amp;lt;StoragePath&amp;gt;&amp;gt;&amp;gt;
+      versions_by_servable_name;
+  TF_RETURN_IF_ERROR(
+      PollFileSystemForConfig(config_, &amp;amp;versions_by_servable_name));
+  for (const auto&amp;amp; entry : versions_by_servable_name) {
+    const string&amp;amp; servable = entry.first;
+    const std::vector&amp;lt;ServableData&amp;lt;StoragePath&amp;gt;&amp;gt;&amp;amp; versions = entry.second;
+    if (versions.empty() &amp;amp;&amp;amp; config_.servable_versions_always_present()) {
+      LOG(ERROR) &amp;lt;&amp;lt; &quot;Refusing to unload all versions for Servable: &quot;
+                 &amp;lt;&amp;lt; servable;
+      continue;
+    }
+    for (const ServableData&amp;lt;StoragePath&amp;gt;&amp;amp; version : versions) {
+      if (version.status().ok()) {
+        VLOG(1) &amp;lt;&amp;lt; &quot;File-system polling update: Servable:&quot; &amp;lt;&amp;lt; version.id()
+                &amp;lt;&amp;lt; &quot;; Servable path: &quot; &amp;lt;&amp;lt; version.DataOrDie()
+                &amp;lt;&amp;lt; &quot;; Polling frequency: &quot;
+                &amp;lt;&amp;lt; config_.file_system_poll_wait_seconds();
+      }
+    }
+    CallAspiredVersionsCallback(servable, versions);
+  }
+  return Status::OK();
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;tf会创建PeriodicFunction对象来周期性调用PollFileSystemAndInvokeCallback，周期时间间隔取决于配置file_system_poll_wait_seconds（不设置tf启动默认赋值1s），而在PollFileSystemAndInvokeCallback需要获取锁mu_。&lt;/p&gt;
+
+&lt;p&gt;而tf如何周期性执行任务可以看PeriodicFunction相关代码：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&quot;language-cpp{.line-numbers}&quot;&gt;void PeriodicFunction::RunLoop(const int64_t start) {
+  {
+    if (options_.startup_delay_micros &amp;gt; 0) {
+      const int64_t deadline = start + options_.startup_delay_micros;
+      options_.env-&amp;gt;SleepForMicroseconds(deadline - start);
+    }
+
+    while (!stop_thread_.HasBeenNotified()) {
+      VLOG(3) &amp;lt;&amp;lt; &quot;Running function.&quot;;
+      const int64_t begin = options_.env-&amp;gt;NowMicros();
+      function_();
+
+      // Take the max() here to guard against time going backwards which
+      // sometimes happens in multiproc machines.
+      const int64_t end =
+          std::max(static_cast&amp;lt;int64_t&amp;gt;(options_.env-&amp;gt;NowMicros()), begin);
+
+      // The deadline is relative to when the last function started.
+      const int64_t deadline = begin + interval_micros_;
+
+      // We want to sleep until &apos;deadline&apos;.
+      if (deadline &amp;gt; end) {
+        if (end &amp;gt; begin) {
+          VLOG(3) &amp;lt;&amp;lt; &quot;Reducing interval_micros from &quot; &amp;lt;&amp;lt; interval_micros_
+                  &amp;lt;&amp;lt; &quot; to &quot; &amp;lt;&amp;lt; (deadline - end);
+        }
+        options_.env-&amp;gt;SleepForMicroseconds(deadline - end);
+      } else {
+        VLOG(3) &amp;lt;&amp;lt; &quot;Function took longer than interval_micros, so not sleeping&quot;;
+      }
+    }
+  }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;进入while循环里面：&lt;/p&gt;
+&lt;ol&gt;
+  &lt;li&gt;获取当前时间赋值begin。&lt;/li&gt;
+  &lt;li&gt;执行任务函数：扫描obs获取当前加载模型路径下的目录，校验加载模型的正确性&lt;/li&gt;
+  &lt;li&gt;取当前时间赋值给end。&lt;/li&gt;
+  &lt;li&gt;计算deadline ，deadline = begin + interval_micros_，interval_micros_即是上文讲的file_system_poll_wait_seconds。&lt;/li&gt;
+  &lt;li&gt;如果deadline &amp;gt; end，进入睡眠，否则，循环回到第一步。&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;blockquote&gt;
+  &lt;p&gt;总结：周期性检查model.config的任务线程和周期性检查已加载模型的任务线程竞争同一互斥锁mu_，又由于file_system_poll_wait_seconds没有设置，默认1s执行一次任务，随着加载中的模型较多，且读取一次obs耗时较高，导致不断循环竞争互斥锁mu_，检查model_config任务长时间处于饥饿状态，任务阻塞，以至于模型加载延迟高。后调整file_system_poll_wait_seconds解决了该问题。
+另：k8s虽然可以通过挂载对象存储至pod上，可以像访问本地存储访问对象存储，但本质访问对象存储是通过网络调用拉取远程数据，所以这个网络调用耗时不能忽视，调用耗时过高会影响周期性检查已加载模型的任务执行，从而给tf带来一定的性能影响。&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;当调整file_system_poll_wait_seconds之后，tf的模型推理预测P99毛刺有一定优化效果：&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/post/recommend/tfmodelload_f6.png&quot; alt=&quot;tfmodelload_f6&quot; title=&quot;tfmodelload_f6&quot; /&gt;&lt;/p&gt;</content><author><name>june</name></author><category term="recommend" /><summary type="html">笔者预设读者对tensorflow serving（下文简称tf）有一定了解基础，因此在一些和本文不太相关的tf相关知识不会做过多描述。本文介绍的从源码层面分析在生产环境碰到tf模型加载高延迟的一次问题排查过程。</summary></entry><entry><title type="html">提议：分离出柔性堆和硬性堆目标大小【译】</title><link href="http://localhost:4000/go/2023-12-16-go-soft-hard-heap-goal.html" rel="alternate" type="text/html" title="提议：分离出柔性堆和硬性堆目标大小【译】" /><published>2023-12-16T00:00:00+08:00</published><updated>2023-12-16T00:00:00+08:00</updated><id>http://localhost:4000/go/go-soft-hard-heap-goal</id><content type="html" xml:base="http://localhost:4000/go/2023-12-16-go-soft-hard-heap-goal.html">&lt;p&gt;原文：《&lt;a href=&quot;https://go.googlesource.com/proposal/+/master/design/14951-soft-heap-limit.md&quot;&gt;Proposal: Separate soft and hard heap size goal&lt;/a&gt;》&lt;/p&gt;
 
 &lt;h3 id=&quot;background&quot;&gt;Background&lt;/h3&gt;
 
@@ -164,7 +468,69 @@
 
 &lt;p&gt;To address this, the trigger controller could account for idle utilization by scaling the heap completion ratio to estimate what it would have been without help from idle marking. This would be like assuming the next cycle won’t have any idle time.&lt;/p&gt;
 
-&lt;p&gt;为了解决这个问题，触发控制器可以通过缩放堆完成率来估计空闲利用率，以估计在没有空闲标记帮助的情况下的情况。这就像假设下一个周期不会有任何空闲时间。&lt;/p&gt;</content><author><name>june</name></author><category term="go" /><summary type="html">原文：《Proposal: Separate soft and hard heap size goal》</summary></entry><entry><title type="html">TCMalloc：线程缓存内存分配【译】</title><link href="http://localhost:4000/go/2023-12-16-tcmalloc-thread-cache-malloc.html" rel="alternate" type="text/html" title="TCMalloc：线程缓存内存分配【译】" /><published>2023-12-16T00:00:00+08:00</published><updated>2023-12-16T00:00:00+08:00</updated><id>http://localhost:4000/go/tcmalloc-thread-cache-malloc</id><content type="html" xml:base="http://localhost:4000/go/2023-12-16-tcmalloc-thread-cache-malloc.html">&lt;p&gt;原文：《&lt;a href=&quot;https://google.github.io/tcmalloc/design.html&quot;&gt;TCMalloc : Thread-Caching Malloc&lt;/a&gt;》&lt;/p&gt;
+&lt;p&gt;为了解决这个问题，触发控制器可以通过缩放堆完成率来估计空闲利用率，以估计在没有空闲标记帮助的情况下的情况。这就像假设下一个周期不会有任何空闲时间。&lt;/p&gt;</content><author><name>june</name></author><category term="go" /><summary type="html">原文：《Proposal: Separate soft and hard heap size goal》</summary></entry><entry><title type="html">推荐系统设计简述</title><link href="http://localhost:4000/recommend/2023-12-16-recommend-system-overview.html" rel="alternate" type="text/html" title="推荐系统设计简述" /><published>2023-12-16T00:00:00+08:00</published><updated>2023-12-16T00:00:00+08:00</updated><id>http://localhost:4000/recommend/recommend-system-overview</id><content type="html" xml:base="http://localhost:4000/recommend/2023-12-16-recommend-system-overview.html">&lt;h3 id=&quot;背景&quot;&gt;背景&lt;/h3&gt;
+
+&lt;p&gt;随着大数据技术的成熟和应用，越来越多APP利用大数据根据用户行为偏好推荐相应兴趣内容，其中包括短视频，论坛，新闻，音乐等等相关APP。本文将从后台工程角度讲述一个推荐系统是如何设计的，着重介绍推荐系统的推荐流程，离线数据处理部分不做过多介绍。&lt;/p&gt;
+
+&lt;h3 id=&quot;推荐系统总览&quot;&gt;推荐系统总览&lt;/h3&gt;
+
+&lt;p&gt;如下图所示，一个推荐系统的引擎由召回服务，模型服务，画像服务，特征处理服务组成，与其同时，还需要BI效果看板，AB实验平台，模型管理，标签平台等系统支撑。除此之外，还需具备用户冷启动，item冷启动，兴趣探索等能力。&lt;/p&gt;
+
+&lt;blockquote&gt;
+  &lt;p&gt;注：item是指向用户推荐的对象，房间列表推荐场景，item即是指房间，论坛帖子推荐场景，item即是指帖子。&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/post/recommend/rcmdoverview_f1.png&quot; alt=&quot;rcmdoverview_f1&quot; title=&quot;rcmdoverview_f1&quot; /&gt;&lt;/p&gt;
+
+&lt;h3 id=&quot;画像接入&quot;&gt;画像接入&lt;/h3&gt;
+
+&lt;p&gt;现有画像数据写入主要来源有两个：1. 近实时画像数据由推荐后台系统消费业务服务端上报的kafka数据，一般数据上报到画像数据可用为毫米级，某些特殊场景为秒级。2. 离线画像由数据上报至数仓，由数仓做数据清洗后，数据开发平台开启任务消费清洗后的数据，写入画像系统。一般数据上报到画像数据可用为T+1，最快也是分钟级别。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/post/recommend/rcmdoverview_f2.png&quot; alt=&quot;rcmdoverview_f2&quot; title=&quot;rcmdoverview_f2&quot; /&gt;&lt;/p&gt;
+
+&lt;h3 id=&quot;推荐请求流程&quot;&gt;推荐请求流程&lt;/h3&gt;
+
+&lt;p&gt;如下图所示，一个完整的推荐流程包括：数据准备阶段，多路召回，过滤，粗排，召回队列合并，精排（特征处理，模型预测），重排，以及下发。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/post/recommend/rcmdoverview_f3.png&quot; alt=&quot;rcmdoverview_f3&quot; title=&quot;rcmdoverview_f3&quot; /&gt;&lt;/p&gt;
+
+&lt;h3 id=&quot;数据准备阶段&quot;&gt;数据准备阶段&lt;/h3&gt;
+
+&lt;p&gt;数据准备阶段，主要做两件事：请求AB系统获取推荐策略分组实验信息和用户侧画像数据准备。&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;AB实验：对于推荐系统 ，每个推荐策略应用一般需做对照实验。比如精排阶段新增模型A，做对照实验，在对照组的用户使用对照模型预测打分，实验组用户用模型A预测打分，实验一段时间后，对比对照组和实验组用户数据，看实验组的业务指标是否提升衡量模型A的推荐效果。关于AB实验更多信息，可自行网上查阅相关信息。&lt;/li&gt;
+  &lt;li&gt;用户侧画像数据准备：一般请求用户基本画像，关系链画像和行为偏好画像，用于决策多路召回的召回队列。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id=&quot;召回&quot;&gt;召回&lt;/h3&gt;
+
+&lt;p&gt;召回是指从召回池取出一定数量的item对象，一般召回会有多路召回队列，用于召回不同的item对象，保证召回item的多样性。以房间列表推荐举个例子，召回队列有：关系链召回，地域召回，实时行为召回等。关系链召回指召回和用户有关联的房主房间，比如关注的人，聊过天的人等等。地域召回指召回和用户同个省份或者同个城市的房间。实时行为召回指召回和用户进过的房间同类型的房间等等。每个召回队列召回的item数量是一定的，数量一般根据具体业务场景具体分析所决定的。每个召回队列都会根据具体的推荐策略针对特定的item对象进行过滤。比如，需要对曝光过的item对象进行过滤。&lt;/p&gt;
+
+&lt;p&gt;召回一定数量的item对象，还需要经过粗排阶段。粗排如字面意思，粗略排序，会根据item一些简单特征画像进行规则打分，或者使用召回模型打分（模型输入的特征也是item一些简单的特征画像）。&lt;/p&gt;
+
+&lt;p&gt;召回队列合并是指将多个召回队列item对象合并，合并后的对象即是进入到精排阶段的item对象。&lt;/p&gt;
+
+&lt;h3 id=&quot;精排&quot;&gt;精排&lt;/h3&gt;
+
+&lt;p&gt;精排阶段主要做两件事：特征处理以及模型预测打分。&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;特征处理：什么是特征？模型预测所需的用户侧和item测数据，比如模型入参需用户年龄，那么用户年龄即是模型所需其中一个特征。特征处理是指用户侧和item侧画像处理成模型所需特征。一般来讲，画像可直接作为模型输入所需特征，但也有画像需计算后才可作为特征输入到模型。举个例子，用户注册时间画像存储的是时间戳，但模型输入的是用户注册天数，那么需要将时间戳转成天数。而这种将时间戳转成天数的通用处理逻辑会抽象出来作为一个算子，不同的算子组成算子库，避免对相似逻辑重复开发。&lt;/li&gt;
+  &lt;li&gt;模型预测打分：将用户侧和item侧特征输入到模型，模型给每个item对象打分，之后，item根据模型的分数进行降序排序。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id=&quot;重排&quot;&gt;重排&lt;/h3&gt;
+
+&lt;p&gt;重排即是重新排序，是对精排根据模型分数排序的item对象重新排序。重排一般在以精排item排序的基础上，对item的强插，降权打压，打散和保量。强插一般是业务指定特定item一定要保证在下发的某个位置，或者前N个下发位。比如下发10个item，业务指定itemA插在列表的第一个位置。降权打压一般指符合指定条件的item排序靠后。打散是指将连续多个位置的同类item进行打散，避免连续位置下发同类型item。保量是指每类item起码有N个。&lt;/p&gt;
+
+&lt;h3 id=&quot;下发&quot;&gt;下发&lt;/h3&gt;
+
+&lt;p&gt;下发阶段，即将重排后的item对象相应的数据组装返回给调用方。&lt;/p&gt;
+
+&lt;h3 id=&quot;item数据流转&quot;&gt;item数据流转&lt;/h3&gt;
+
+&lt;p&gt;下图为推荐各个阶段item对象的数量级。一般召回和过滤阶段item数量几千个，进入到精排重排为几百个，下发根据不同推荐场景几个到几十不等。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/assets/post/recommend/rcmdoverview_f4.png&quot; alt=&quot;rcmdoverview_f4&quot; title=&quot;rcmdoverview_f4&quot; /&gt;&lt;/p&gt;</content><author><name>june</name></author><category term="recommend" /><summary type="html">背景</summary></entry><entry><title type="html">TCMalloc：线程缓存内存分配【译】</title><link href="http://localhost:4000/go/2023-12-16-tcmalloc-thread-cache-malloc.html" rel="alternate" type="text/html" title="TCMalloc：线程缓存内存分配【译】" /><published>2023-12-16T00:00:00+08:00</published><updated>2023-12-16T00:00:00+08:00</updated><id>http://localhost:4000/go/tcmalloc-thread-cache-malloc</id><content type="html" xml:base="http://localhost:4000/go/2023-12-16-tcmalloc-thread-cache-malloc.html">&lt;p&gt;原文：《&lt;a href=&quot;https://google.github.io/tcmalloc/design.html&quot;&gt;TCMalloc : Thread-Caching Malloc&lt;/a&gt;》&lt;/p&gt;
 
 &lt;h3 id=&quot;motivation&quot;&gt;Motivation&lt;/h3&gt;
 
@@ -541,69 +907,7 @@
 
 &lt;p&gt;Don’t try to load TCMalloc into a running binary (e.g., using JNI in Java programs). The binary will have allocated some objects using the system malloc, and may try to pass them to TCMalloc for deallocation. TCMalloc will not be able to handle such objects.&lt;/p&gt;
 
-&lt;p&gt;不要尝试将TCMalloc加载到正在运行的二进制文件中（例如，在Java程序中使用JNI）。二进制文件将使用系统malloc分配一些对象，并可能尝试将它们传递给TCMalloc进行释放。TCMalloc将无法处理此类对象。&lt;/p&gt;</content><author><name>june</name></author><category term="go" /><summary type="html">原文：《TCMalloc : Thread-Caching Malloc》</summary></entry><entry><title type="html">推荐系统设计简述</title><link href="http://localhost:4000/recommend/2023-12-16-recommend-system-overview.html" rel="alternate" type="text/html" title="推荐系统设计简述" /><published>2023-12-16T00:00:00+08:00</published><updated>2023-12-16T00:00:00+08:00</updated><id>http://localhost:4000/recommend/recommend-system-overview</id><content type="html" xml:base="http://localhost:4000/recommend/2023-12-16-recommend-system-overview.html">&lt;h3 id=&quot;背景&quot;&gt;背景&lt;/h3&gt;
-
-&lt;p&gt;随着大数据技术的成熟和应用，越来越多APP利用大数据根据用户行为偏好推荐相应兴趣内容，其中包括短视频，论坛，新闻，音乐等等相关APP。本文将从后台工程角度讲述一个推荐系统是如何设计的，着重介绍推荐系统的推荐流程，离线数据处理部分不做过多介绍。&lt;/p&gt;
-
-&lt;h3 id=&quot;推荐系统总览&quot;&gt;推荐系统总览&lt;/h3&gt;
-
-&lt;p&gt;如下图所示，一个推荐系统的引擎由召回服务，模型服务，画像服务，特征处理服务组成，与其同时，还需要BI效果看板，AB实验平台，模型管理，标签平台等系统支撑。除此之外，还需具备用户冷启动，item冷启动，兴趣探索等能力。&lt;/p&gt;
-
-&lt;blockquote&gt;
-  &lt;p&gt;注：item是指向用户推荐的对象，房间列表推荐场景，item即是指房间，论坛帖子推荐场景，item即是指帖子。&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;&lt;img src=&quot;/assets/post/recommend/rcmdoverview_f1.png&quot; alt=&quot;rcmdoverview_f1&quot; title=&quot;rcmdoverview_f1&quot; /&gt;&lt;/p&gt;
-
-&lt;h3 id=&quot;画像接入&quot;&gt;画像接入&lt;/h3&gt;
-
-&lt;p&gt;现有画像数据写入主要来源有两个：1. 近实时画像数据由推荐后台系统消费业务服务端上报的kafka数据，一般数据上报到画像数据可用为毫米级，某些特殊场景为秒级。2. 离线画像由数据上报至数仓，由数仓做数据清洗后，数据开发平台开启任务消费清洗后的数据，写入画像系统。一般数据上报到画像数据可用为T+1，最快也是分钟级别。&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&quot;/assets/post/recommend/rcmdoverview_f2.png&quot; alt=&quot;rcmdoverview_f2&quot; title=&quot;rcmdoverview_f2&quot; /&gt;&lt;/p&gt;
-
-&lt;h3 id=&quot;推荐请求流程&quot;&gt;推荐请求流程&lt;/h3&gt;
-
-&lt;p&gt;如下图所示，一个完整的推荐流程包括：数据准备阶段，多路召回，过滤，粗排，召回队列合并，精排（特征处理，模型预测），重排，以及下发。&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&quot;/assets/post/recommend/rcmdoverview_f3.png&quot; alt=&quot;rcmdoverview_f3&quot; title=&quot;rcmdoverview_f3&quot; /&gt;&lt;/p&gt;
-
-&lt;h3 id=&quot;数据准备阶段&quot;&gt;数据准备阶段&lt;/h3&gt;
-
-&lt;p&gt;数据准备阶段，主要做两件事：请求AB系统获取推荐策略分组实验信息和用户侧画像数据准备。&lt;/p&gt;
-&lt;ul&gt;
-  &lt;li&gt;AB实验：对于推荐系统 ，每个推荐策略应用一般需做对照实验。比如精排阶段新增模型A，做对照实验，在对照组的用户使用对照模型预测打分，实验组用户用模型A预测打分，实验一段时间后，对比对照组和实验组用户数据，看实验组的业务指标是否提升衡量模型A的推荐效果。关于AB实验更多信息，可自行网上查阅相关信息。&lt;/li&gt;
-  &lt;li&gt;用户侧画像数据准备：一般请求用户基本画像，关系链画像和行为偏好画像，用于决策多路召回的召回队列。&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;h3 id=&quot;召回&quot;&gt;召回&lt;/h3&gt;
-
-&lt;p&gt;召回是指从召回池取出一定数量的item对象，一般召回会有多路召回队列，用于召回不同的item对象，保证召回item的多样性。以房间列表推荐举个例子，召回队列有：关系链召回，地域召回，实时行为召回等。关系链召回指召回和用户有关联的房主房间，比如关注的人，聊过天的人等等。地域召回指召回和用户同个省份或者同个城市的房间。实时行为召回指召回和用户进过的房间同类型的房间等等。每个召回队列召回的item数量是一定的，数量一般根据具体业务场景具体分析所决定的。每个召回队列都会根据具体的推荐策略针对特定的item对象进行过滤。比如，需要对曝光过的item对象进行过滤。&lt;/p&gt;
-
-&lt;p&gt;召回一定数量的item对象，还需要经过粗排阶段。粗排如字面意思，粗略排序，会根据item一些简单特征画像进行规则打分，或者使用召回模型打分（模型输入的特征也是item一些简单的特征画像）。&lt;/p&gt;
-
-&lt;p&gt;召回队列合并是指将多个召回队列item对象合并，合并后的对象即是进入到精排阶段的item对象。&lt;/p&gt;
-
-&lt;h3 id=&quot;精排&quot;&gt;精排&lt;/h3&gt;
-
-&lt;p&gt;精排阶段主要做两件事：特征处理以及模型预测打分。&lt;/p&gt;
-&lt;ul&gt;
-  &lt;li&gt;特征处理：什么是特征？模型预测所需的用户侧和item测数据，比如模型入参需用户年龄，那么用户年龄即是模型所需其中一个特征。特征处理是指用户侧和item侧画像处理成模型所需特征。一般来讲，画像可直接作为模型输入所需特征，但也有画像需计算后才可作为特征输入到模型。举个例子，用户注册时间画像存储的是时间戳，但模型输入的是用户注册天数，那么需要将时间戳转成天数。而这种将时间戳转成天数的通用处理逻辑会抽象出来作为一个算子，不同的算子组成算子库，避免对相似逻辑重复开发。&lt;/li&gt;
-  &lt;li&gt;模型预测打分：将用户侧和item侧特征输入到模型，模型给每个item对象打分，之后，item根据模型的分数进行降序排序。&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;h3 id=&quot;重排&quot;&gt;重排&lt;/h3&gt;
-
-&lt;p&gt;重排即是重新排序，是对精排根据模型分数排序的item对象重新排序。重排一般在以精排item排序的基础上，对item的强插，降权打压，打散和保量。强插一般是业务指定特定item一定要保证在下发的某个位置，或者前N个下发位。比如下发10个item，业务指定itemA插在列表的第一个位置。降权打压一般指符合指定条件的item排序靠后。打散是指将连续多个位置的同类item进行打散，避免连续位置下发同类型item。保量是指每类item起码有N个。&lt;/p&gt;
-
-&lt;h3 id=&quot;下发&quot;&gt;下发&lt;/h3&gt;
-
-&lt;p&gt;下发阶段，即将重排后的item对象相应的数据组装返回给调用方。&lt;/p&gt;
-
-&lt;h3 id=&quot;item数据流转&quot;&gt;item数据流转&lt;/h3&gt;
-
-&lt;p&gt;下图为推荐各个阶段item对象的数量级。一般召回和过滤阶段item数量几千个，进入到精排重排为几百个，下发根据不同推荐场景几个到几十不等。&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&quot;/assets/post/recommend/rcmdoverview_f4.png&quot; alt=&quot;rcmdoverview_f4&quot; title=&quot;rcmdoverview_f4&quot; /&gt;&lt;/p&gt;</content><author><name>june</name></author><category term="recommend" /><summary type="html">背景</summary></entry><entry><title type="html">mysql一种可拓展无锁的WAL新设计【译】</title><link href="http://localhost:4000/db/2023-12-03-mysql-new-free-lock.html" rel="alternate" type="text/html" title="mysql一种可拓展无锁的WAL新设计【译】" /><published>2023-12-03T00:00:00+08:00</published><updated>2023-12-03T00:00:00+08:00</updated><id>http://localhost:4000/db/mysql-new-free-lock</id><content type="html" xml:base="http://localhost:4000/db/2023-12-03-mysql-new-free-lock.html">&lt;p&gt;原文：《&lt;a href=&quot;https://dev.mysql.com/blog-archive/mysql-8-0-new-lock-free-scalable-wal-design/&quot;&gt;New Lock free, scalable WAL design&lt;/a&gt;》&lt;/p&gt;
+&lt;p&gt;不要尝试将TCMalloc加载到正在运行的二进制文件中（例如，在Java程序中使用JNI）。二进制文件将使用系统malloc分配一些对象，并可能尝试将它们传递给TCMalloc进行释放。TCMalloc将无法处理此类对象。&lt;/p&gt;</content><author><name>june</name></author><category term="go" /><summary type="html">原文：《TCMalloc : Thread-Caching Malloc》</summary></entry><entry><title type="html">mysql一种可拓展无锁的WAL新设计【译】</title><link href="http://localhost:4000/db/2023-12-03-mysql-new-free-lock.html" rel="alternate" type="text/html" title="mysql一种可拓展无锁的WAL新设计【译】" /><published>2023-12-03T00:00:00+08:00</published><updated>2023-12-03T00:00:00+08:00</updated><id>http://localhost:4000/db/mysql-new-free-lock</id><content type="html" xml:base="http://localhost:4000/db/2023-12-03-mysql-new-free-lock.html">&lt;p&gt;原文：《&lt;a href=&quot;https://dev.mysql.com/blog-archive/mysql-8-0-new-lock-free-scalable-wal-design/&quot;&gt;New Lock free, scalable WAL design&lt;/a&gt;》&lt;/p&gt;
 
 &lt;p&gt;The Write Ahead Log (WAL) is one of the most important components of a database. All the changes to data files are logged in the WAL (called the redo log in InnoDB). This allows to postpone the moment when the modified pages are flushed to disk, still protecting from data losses.&lt;/p&gt;
 
